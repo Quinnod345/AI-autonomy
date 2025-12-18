@@ -1,0 +1,324 @@
+/* ==========================================
+   The Illusion of AI Autonomy
+   Global Styles - Burned Noise Gradient Aesthetic
+   ========================================== */
+
+/* CSS Reset */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+* {
+	margin: 0;
+	padding: 0;
+}
+
+html {
+	scroll-behavior: smooth;
+}
+
+body {
+	line-height: 1.6;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+img,
+picture,
+video,
+canvas,
+svg {
+	display: block;
+	max-width: 100%;
+}
+
+input,
+button,
+textarea,
+select {
+	font: inherit;
+}
+
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	overflow-wrap: break-word;
+}
+
+/* ==========================================
+   CSS Custom Properties
+   ========================================== */
+
+:root {
+	/* Core Palette */
+	--charcoal: #0a0a0a;
+	--ash-dark: #1a1a1a;
+	--ash-mid: #2d2d2d;
+	--ash-light: #4a4a4a;
+
+	/* Burned Accents */
+	--ember: #c45e1a;
+	--ember-dark: #8b2500;
+	--ember-glow: #ff6b35;
+	--ember-subtle: #3d2517;
+
+	/* Smoke/Neutral */
+	--smoke: #e8e4e0;
+	--smoke-dark: #b5b0a8;
+	--smoke-muted: #7a7672;
+
+	/* Semantic */
+	--text-primary: var(--smoke);
+	--text-secondary: var(--smoke-dark);
+	--text-muted: var(--smoke-muted);
+	--accent: var(--ember);
+	--accent-hover: var(--ember-glow);
+	--background: var(--charcoal);
+	--surface: var(--ash-dark);
+
+	/* Font Families */
+	--font-display: 'Playfair Display', Georgia, serif;
+	--font-body: 'Source Serif 4', Georgia, serif;
+	--font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+	--font-stat: 'Bebas Neue', 'Oswald', sans-serif;
+
+	/* Display Sizes */
+	--size-hero: clamp(3rem, 8vw, 7rem);
+	--size-section: clamp(2rem, 5vw, 4rem);
+	--size-subsection: clamp(1.5rem, 3vw, 2.5rem);
+
+	/* Body Sizes */
+	--size-body: clamp(1rem, 1.5vw, 1.25rem);
+	--size-body-large: clamp(1.125rem, 1.75vw, 1.5rem);
+	--size-small: 0.875rem;
+	--size-tiny: 0.75rem;
+
+	/* Special Sizes */
+	--size-code: 0.9rem;
+	--size-stat: clamp(4rem, 10vw, 8rem);
+	--size-stat-small: clamp(2rem, 5vw, 3.5rem);
+
+	/* Line Heights */
+	--leading-tight: 1.1;
+	--leading-snug: 1.3;
+	--leading-normal: 1.6;
+	--leading-relaxed: 1.8;
+
+	/* Spacing */
+	--space-xs: 0.5rem;
+	--space-sm: 1rem;
+	--space-md: 2rem;
+	--space-lg: 4rem;
+	--space-xl: 6rem;
+	--space-2xl: 10rem;
+
+	/* Layout */
+	--max-width: 1200px;
+	--max-width-prose: 720px;
+
+	/* Animation */
+	--transition-fast: 150ms ease;
+	--transition-base: 300ms ease;
+	--transition-slow: 600ms ease;
+	--transition-slower: 1000ms ease;
+}
+
+/* ==========================================
+   Base Styles
+   ========================================== */
+
+body {
+	font-family: var(--font-body);
+	font-size: var(--size-body);
+	line-height: var(--leading-normal);
+	color: var(--text-primary);
+	background: var(--background);
+	overflow-x: hidden;
+}
+
+/* Typography */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-family: var(--font-display);
+	font-weight: 600;
+	line-height: var(--leading-tight);
+	color: var(--text-primary);
+}
+
+h1 {
+	font-size: var(--size-hero);
+}
+
+h2 {
+	font-size: var(--size-section);
+}
+
+h3 {
+	font-size: var(--size-subsection);
+}
+
+p {
+	margin-bottom: 1.5em;
+}
+
+p:last-child {
+	margin-bottom: 0;
+}
+
+a {
+	color: var(--accent);
+	text-decoration: none;
+	transition: color var(--transition-fast);
+}
+
+a:hover {
+	color: var(--accent-hover);
+}
+
+a:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
+strong {
+	font-weight: 600;
+}
+
+em {
+	font-style: italic;
+}
+
+/* Code */
+code,
+pre {
+	font-family: var(--font-mono);
+	font-size: var(--size-code);
+}
+
+code {
+	background: var(--ash-mid);
+	padding: 0.2em 0.4em;
+	border-radius: 4px;
+}
+
+pre {
+	background: var(--ash-dark);
+	padding: var(--space-md);
+	border-radius: 8px;
+	overflow-x: auto;
+	border: 1px solid var(--ash-mid);
+}
+
+pre code {
+	background: none;
+	padding: 0;
+}
+
+/* Selection */
+::selection {
+	background: var(--ember);
+	color: var(--smoke);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+::-webkit-scrollbar-track {
+	background: var(--ash-dark);
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--ash-mid);
+	border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--ash-light);
+}
+
+/* ==========================================
+   Skip Link (Accessibility)
+   ========================================== */
+
+.skip-link {
+	position: absolute;
+	top: -100%;
+	left: 50%;
+	transform: translateX(-50%);
+	background: var(--ember);
+	color: var(--smoke);
+	padding: var(--space-sm) var(--space-md);
+	border-radius: 0 0 8px 8px;
+	z-index: 10000;
+	font-weight: 600;
+	transition: top var(--transition-fast);
+}
+
+.skip-link:focus {
+	top: 0;
+}
+
+/* ==========================================
+   Reduced Motion
+   ========================================== */
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
+
+/* ==========================================
+   Utility Classes
+   ========================================== */
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+.text-accent {
+	color: var(--accent);
+}
+
+.text-muted {
+	color: var(--text-muted);
+}
+
+.font-display {
+	font-family: var(--font-display);
+}
+
+.font-mono {
+	font-family: var(--font-mono);
+}
+
+.font-stat {
+	font-family: var(--font-stat);
+}
+
