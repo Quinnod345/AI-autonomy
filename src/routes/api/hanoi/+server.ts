@@ -1,6 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { OPENAI_API_KEY } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 
 interface PuzzleState {
 	pegs: [number[], number[], number[]];
@@ -19,7 +19,7 @@ const PEG_NAMES = ['A', 'B', 'C'] as const;
 const MAX_MOVES = 150;
 
 export const POST: RequestHandler = async ({ request }) => {
-	if (!OPENAI_API_KEY) {
+	if (!env.OPENAI_API_KEY) {
 		throw error(500, 'OpenAI API key not configured');
 	}
 
@@ -94,7 +94,7 @@ Reply JSON only: {"m":"XY","r":"reason"} where XY is from valid moves.`;
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
-				Authorization: `Bearer ${OPENAI_API_KEY}`
+				Authorization: `Bearer ${env.OPENAI_API_KEY}`
 			},
 			body: JSON.stringify({
 				model: 'gpt-4o',
