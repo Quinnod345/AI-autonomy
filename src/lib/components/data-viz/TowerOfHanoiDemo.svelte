@@ -13,8 +13,22 @@
 	let status = $state<'idle' | 'running' | 'success' | 'failed' | 'error'>('idle');
 	let statusMessage = $state('');
 	let aiReasoning = $state('');
+	let displayedReasoning = $state('');
 	let moveHistory = $state<Array<{ from: number; to: number }>>([]);
-	let animationDelay = $state(400); // ms between moves
+	
+	// Animation state
+	let animatingDisk = $state<number | null>(null);
+	let animationPhase = $state<'idle' | 'lifting' | 'moving' | 'dropping'>('idle');
+	let animationFromPeg = $state(0);
+	let animationToPeg = $state(0);
+	let containerRef = $state<HTMLElement | null>(null);
+
+	const ANIMATION_TIMING = {
+		lift: 250,
+		move: 400,
+		drop: 200,
+		pause: 100
+	};
 
 	const MAX_MOVES = 100;
 	const MAX_INVALID_MOVES = 5;
@@ -34,6 +48,7 @@
 		status = 'idle';
 		statusMessage = '';
 		aiReasoning = '';
+		displayedReasoning = '';
 		moveHistory = [];
 	}
 
@@ -55,23 +70,51 @@
 		return true;
 	}
 
-	// Execute a move
-	function executeMove(from: number, to: number) {
+	// Execute a move with animation
+	async function executeMove(from: number, to: number) {
+		const disk = pegs[from][pegs[from].length - 1];
+		animatingDisk = disk;
+		animationFromPeg = from;
+		animationToPeg = to;
+
+		// Phase 1: Lift disk up
+		animationPhase = 'lifting';
+		await sleep(ANIMATION_TIMING.lift);
+
+		// Phase 2: Move horizontally
+		animationPhase = 'moving';
+		await sleep(ANIMATION_TIMING.move);
+
+		// Phase 3: Drop disk down
+		animationPhase = 'dropping';
+		await sleep(ANIMATION_TIMING.drop);
+
+		// Complete the move in state
 		const newPegs: [Peg, Peg, Peg] = [[...pegs[0]], [...pegs[1]], [...pegs[2]]];
-		const disk = newPegs[from].pop()!;
+		newPegs[from].pop();
 		newPegs[to].push(disk);
 		pegs = newPegs;
 		moveCount++;
 		moveHistory = [...moveHistory, { from, to }];
+
+		// Reset animation state
+		animationPhase = 'idle';
+		animatingDisk = null;
+		
+		await sleep(ANIMATION_TIMING.pause);
 	}
 
-	// Call the AI API for the next move
+	// Call the AI API for the next move with streaming
 	async function getAIMove(): Promise<{
 		from: number;
 		to: number;
 		reasoning: string;
+		thoughts?: string[];
 		error?: string;
 	} | null> {
+		// Clear previous reasoning for new move
+		displayedReasoning = '';
+		
 		try {
 			const response = await fetch('/api/hanoi', {
 				method: 'POST',
@@ -88,7 +131,66 @@
 				throw new Error(`API error: ${response.status} - ${errorText}`);
 			}
 
-			return await response.json();
+			// Handle streaming response
+			const reader = response.body?.getReader();
+			if (!reader) {
+				throw new Error('No response body');
+			}
+
+			const decoder = new TextDecoder();
+			let result: {
+				from: number;
+				to: number;
+				reasoning: string;
+				thoughts?: string[];
+				error?: string;
+			} | null = null;
+
+			let currentReasoningText = '';
+			let buffer = '';
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+
+				const chunk = decoder.decode(value, { stream: true });
+				buffer += chunk;
+				
+				// Split on double newlines (SSE format)
+				const parts = buffer.split('\n\n');
+				buffer = parts.pop() || ''; // Keep incomplete part
+
+				for (const part of parts) {
+					const lines = part.split('\n');
+					for (const line of lines) {
+						if (!line.startsWith('data: ')) continue;
+						const data = line.slice(6).trim();
+						if (!data || data === '[DONE]') continue;
+
+						try {
+							const parsed = JSON.parse(data);
+
+							if (parsed.type === 'reasoning') {
+								// Stream reasoning text in real-time
+								currentReasoningText += parsed.text;
+								displayedReasoning = currentReasoningText;
+							} else if (parsed.type === 'complete') {
+								result = {
+									from: parsed.from,
+									to: parsed.to,
+									reasoning: parsed.reasoning,
+									thoughts: parsed.thoughts,
+									error: parsed.error
+								};
+							}
+						} catch {
+							// Skip invalid JSON
+						}
+					}
+				}
+			}
+
+			return result;
 		} catch (err) {
 			console.error('Failed to get AI move:', err);
 			return null;
@@ -106,7 +208,7 @@
 
 		while (!isSolved() && moveCount < MAX_MOVES && invalidMoveCount < MAX_INVALID_MOVES) {
 			isThinking = true;
-			aiReasoning = 'AI is thinking...';
+			// Keep previous aiReasoning visible while thinking
 
 			const aiResponse = await getAIMove();
 
@@ -128,8 +230,8 @@
 				return;
 			}
 
-			isThinking = false;
-			aiReasoning = aiResponse.reasoning;
+		isThinking = false;
+		aiReasoning = aiResponse.reasoning;
 
 			// Validate the move
 			if (!isValidMove(aiResponse.from, aiResponse.to)) {
@@ -145,16 +247,28 @@
 				}
 
 				// Brief pause before retrying
-				await sleep(animationDelay / 2);
+				await sleep(300);
 				continue;
 			}
 
-			// Execute the valid move
-			executeMove(aiResponse.from, aiResponse.to);
-			statusMessage = `Move ${moveCount}: ${PEG_NAMES[aiResponse.from]} → ${PEG_NAMES[aiResponse.to]}`;
+			// Check for backtracking (undoing the previous move)
+			const lastMove = moveHistory.length > 0 ? moveHistory[moveHistory.length - 1] : null;
+			if (lastMove && lastMove.from === aiResponse.to && lastMove.to === aiResponse.from) {
+				invalidMoveCount++;
+				statusMessage = `Backtrack detected: ${PEG_NAMES[aiResponse.from]} → ${PEG_NAMES[aiResponse.to]} undoes previous move (${invalidMoveCount}/${MAX_INVALID_MOVES} invalid)`;
+				aiReasoning = `BACKTRACK: ${aiResponse.reasoning}`;
 
-			// Pause for animation
-			await sleep(animationDelay);
+				if (invalidMoveCount >= MAX_INVALID_MOVES) {
+					status = 'failed';
+					statusMessage = `AI failed after ${invalidMoveCount} backtracks/invalid moves. It's going in circles.`;
+					isRunning = false;
+					return;
+				}
+			}
+
+			// Execute the valid move with animation
+			await executeMove(aiResponse.from, aiResponse.to);
+			statusMessage = `Move ${moveCount}: ${PEG_NAMES[aiResponse.from]} → ${PEG_NAMES[aiResponse.to]}`;
 		}
 
 		// Determine final status
@@ -188,7 +302,7 @@
 
 <div class="demo-container">
 	<h4 class="demo-title">Experience the Cliff</h4>
-	<p class="demo-subtitle">Watch real GPT-4o attempt Tower of Hanoi at different complexity levels</p>
+	<p class="demo-subtitle">Watch real GPT-5 attempt Tower of Hanoi at different complexity levels</p>
 
 	<div class="controls">
 		<div class="disk-selector">
@@ -223,20 +337,6 @@
 			<span class="optimal-moves">({optimalMoves(diskCount)} moves optimal)</span>
 		</div>
 
-		<div class="speed-control">
-			<label for="speed">Animation speed:</label>
-			<input
-				type="range"
-				id="speed"
-				min="200"
-				max="2000"
-				step="100"
-				bind:value={animationDelay}
-				disabled={isRunning}
-			/>
-			<span class="speed-value">{animationDelay}ms</span>
-		</div>
-
 		<button class="run-button" onclick={runAIAttempt} disabled={isRunning}>
 			{#if isRunning}
 				{#if isThinking}
@@ -250,19 +350,21 @@
 		</button>
 	</div>
 
-	<div class="tower-visualization" role="img" aria-label="Tower of Hanoi puzzle with {diskCount} disks">
+	<div class="tower-visualization" bind:this={containerRef} role="img" aria-label="Tower of Hanoi puzzle with {diskCount} disks">
 		{#each pegs as peg, pegIndex}
-			<div class="peg-container">
+			<div class="peg-container" data-peg={pegIndex}>
 				<div class="peg-label">{pegLabels[pegIndex]}</div>
 				<div class="peg">
 					<div class="peg-rod"></div>
 					<div class="peg-base"></div>
 					<div class="disks">
 						{#each peg as diskSize, diskIndex}
+							{@const isAnimating = animatingDisk === diskSize && animationFromPeg === pegIndex}
 							<div
 								class="disk"
+								class:hidden={isAnimating}
 								style="
-									--disk-width: {30 + diskSize * 12}%;
+									--disk-width: {30 + diskSize * 14}px;
 									--disk-hue: {(diskSize - 1) * (360 / diskCount)};
 									--disk-index: {diskIndex};
 								"
@@ -274,6 +376,37 @@
 				</div>
 			</div>
 		{/each}
+
+		<!-- Animated floating disk -->
+		{#if animatingDisk !== null}
+			{@const pegWidth = 33.33}
+			{@const fromX = animationFromPeg * pegWidth + pegWidth / 2}
+			{@const toX = animationToPeg * pegWidth + pegWidth / 2}
+			{@const liftHeight = 170}
+			{@const fromStackHeight = 10 + (pegs[animationFromPeg].length) * 20}
+			{@const toStackHeight = 10 + pegs[animationToPeg].length * 20}
+			{@const diskWidthPx = 30 + animatingDisk * 14}
+			<div
+				class="floating-disk"
+				class:lifting={animationPhase === 'lifting'}
+				class:moving={animationPhase === 'moving'}
+				class:dropping={animationPhase === 'dropping'}
+				style="
+					--disk-width: {diskWidthPx}px;
+					--disk-hue: {(animatingDisk - 1) * (360 / diskCount)};
+					--from-x: {fromX}%;
+					--to-x: {toX}%;
+					--lift-height: {liftHeight}px;
+					--from-y: {fromStackHeight}px;
+					--to-y: {toStackHeight}px;
+					--lift-duration: {ANIMATION_TIMING.lift}ms;
+					--move-duration: {ANIMATION_TIMING.move}ms;
+					--drop-duration: {ANIMATION_TIMING.drop}ms;
+				"
+			>
+				<span class="visually-hidden">Moving disk {animatingDisk}</span>
+			</div>
+		{/if}
 	</div>
 
 	<div
@@ -307,17 +440,30 @@
 			<p class="status-message">{statusMessage}</p>
 		{/if}
 
+		{#if displayedReasoning}
+			<div class="ai-thoughts">
+				<span class="thoughts-label">🧠 AI Internal Reasoning:</span>
+				<p class="thoughts-text">
+					{displayedReasoning}
+					<span class="typing-cursor"></span>
+				</p>
+			</div>
+		{/if}
+
 		{#if aiReasoning}
 			<div class="ai-reasoning">
-				<span class="reasoning-label">AI Reasoning:</span>
+				<span class="reasoning-label">AI Decision:</span>
 				<p class="reasoning-text">{aiReasoning}</p>
 			</div>
 		{/if}
 	</div>
 
 	<p class="demo-note">
-		This demo calls real GPT-4o for each move. Watch how the AI handles increasing complexity.
-		At higher disk counts, you may see invalid moves or the AI struggling to maintain state.
+		This demo calls real GPT-5.2 for each move. <strong>Note:</strong> Tower of Hanoi is a well-known puzzle 
+		that appears extensively in computer science textbooks and coding tutorials, meaning it's heavily 
+		represented in the AI's training data. The AI performs relatively well here because it has essentially 
+		"memorized" the optimal algorithm. Novel problems without training data representation show much 
+		steeper performance degradation.
 	</p>
 </div>
 
@@ -444,30 +590,6 @@
 		font-size: var(--size-tiny);
 	}
 
-	.speed-control {
-		display: flex;
-		align-items: center;
-		gap: var(--space-sm);
-	}
-
-	.speed-control label {
-		font-family: var(--font-mono);
-		font-size: var(--size-small);
-		color: var(--text-secondary);
-	}
-
-	.speed-control input[type='range'] {
-		width: 120px;
-		accent-color: var(--ember);
-	}
-
-	.speed-value {
-		font-family: var(--font-mono);
-		font-size: var(--size-tiny);
-		color: var(--text-muted);
-		min-width: 50px;
-	}
-
 	.run-button {
 		align-self: flex-start;
 		padding: var(--space-sm) var(--space-md);
@@ -522,6 +644,7 @@
 	}
 
 	.tower-visualization {
+		position: relative;
 		display: flex;
 		justify-content: space-around;
 		align-items: flex-end;
@@ -591,7 +714,110 @@
 		border-radius: 4px;
 		margin-bottom: 2px;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-		transition: all 0.3s ease;
+		transition: opacity 0.1s ease;
+	}
+
+	.disk.hidden {
+		opacity: 0;
+	}
+
+	/* Floating animated disk */
+	.floating-disk {
+		position: absolute;
+		height: 18px;
+		width: var(--disk-width);
+		background: linear-gradient(
+			180deg,
+			hsl(var(--disk-hue), 75%, 60%) 0%,
+			hsl(var(--disk-hue), 70%, 50%) 50%,
+			hsl(var(--disk-hue), 65%, 40%) 100%
+		);
+		border-radius: 4px;
+		left: var(--from-x);
+		bottom: var(--from-y);
+		transform: translateX(-50%);
+		box-shadow: 
+			0 4px 8px rgba(0, 0, 0, 0.4),
+			0 0 20px hsla(var(--disk-hue), 70%, 50%, 0.3);
+		z-index: 100;
+	}
+
+	.floating-disk.lifting {
+		animation: disk-lift var(--lift-duration) cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+	}
+
+	.floating-disk.moving {
+		left: var(--to-x);
+		bottom: var(--lift-height);
+		animation: disk-move var(--move-duration) cubic-bezier(0.22, 1, 0.36, 1) forwards;
+	}
+
+	.floating-disk.dropping {
+		left: var(--to-x);
+		bottom: var(--to-y);
+		animation: disk-drop var(--drop-duration) cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
+	}
+
+	@keyframes disk-lift {
+		0% {
+			left: var(--from-x);
+			bottom: var(--from-y);
+			box-shadow: 
+				0 4px 8px rgba(0, 0, 0, 0.4),
+				0 0 20px hsla(var(--disk-hue), 70%, 50%, 0.3);
+		}
+		100% {
+			left: var(--from-x);
+			bottom: var(--lift-height);
+			box-shadow: 
+				0 12px 24px rgba(0, 0, 0, 0.5),
+				0 0 30px hsla(var(--disk-hue), 70%, 50%, 0.5);
+		}
+	}
+
+	@keyframes disk-move {
+		0% {
+			left: var(--from-x);
+			box-shadow: 
+				0 12px 24px rgba(0, 0, 0, 0.5),
+				0 0 30px hsla(var(--disk-hue), 70%, 50%, 0.5);
+		}
+		50% {
+			transform: translateX(-50%) scale(1.05);
+			box-shadow: 
+				0 16px 32px rgba(0, 0, 0, 0.6),
+				0 0 40px hsla(var(--disk-hue), 70%, 50%, 0.6);
+		}
+		100% {
+			left: var(--to-x);
+			transform: translateX(-50%) scale(1);
+			box-shadow: 
+				0 12px 24px rgba(0, 0, 0, 0.5),
+				0 0 30px hsla(var(--disk-hue), 70%, 50%, 0.5);
+		}
+	}
+
+	@keyframes disk-drop {
+		0% {
+			bottom: var(--lift-height);
+			box-shadow: 
+				0 12px 24px rgba(0, 0, 0, 0.5),
+				0 0 30px hsla(var(--disk-hue), 70%, 50%, 0.5);
+		}
+		70% {
+			bottom: var(--to-y);
+			transform: translateX(-50%) scaleY(0.9) scaleX(1.05);
+		}
+		85% {
+			transform: translateX(-50%) scaleY(1.05) scaleX(0.98);
+		}
+		100% {
+			bottom: var(--to-y);
+			transform: translateX(-50%) scaleY(1) scaleX(1);
+			box-shadow: 
+				0 4px 8px rgba(0, 0, 0, 0.4),
+				0 0 20px hsla(var(--disk-hue), 70%, 50%, 0.3);
+		}
 	}
 
 	.status-panel {
@@ -656,6 +882,51 @@
 		font-style: italic;
 	}
 
+	.ai-thoughts {
+		background: rgba(30, 30, 35, 0.8);
+		border: 1px solid var(--ash-mid);
+		border-radius: 6px;
+		padding: var(--space-sm);
+		margin-top: var(--space-sm);
+	}
+
+	.thoughts-label {
+		font-family: var(--font-mono);
+		font-size: var(--size-tiny);
+		color: var(--text-muted);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		display: block;
+		margin-bottom: var(--space-xs);
+	}
+
+	.thoughts-text {
+		font-size: var(--size-small);
+		color: var(--text-secondary);
+		margin: var(--space-xs) 0 0;
+		line-height: 1.6;
+		opacity: 0.85;
+	}
+
+	.typing-cursor {
+		display: inline-block;
+		width: 2px;
+		height: 1em;
+		background: currentColor;
+		margin-left: 1px;
+		animation: blink 0.8s ease-in-out infinite;
+		vertical-align: text-bottom;
+	}
+
+	@keyframes blink {
+		0%, 50% {
+			opacity: 1;
+		}
+		51%, 100% {
+			opacity: 0;
+		}
+	}
+
 	.ai-reasoning {
 		background: var(--ash-dark);
 		border-radius: 6px;
@@ -713,10 +984,6 @@
 		.disk-selector {
 			flex-direction: column;
 			align-items: flex-start;
-		}
-
-		.speed-control {
-			flex-wrap: wrap;
 		}
 	}
 </style>

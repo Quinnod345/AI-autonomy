@@ -6,17 +6,19 @@
 		url?: string;
 	}
 
+	const CANONICAL_URL = 'https://ai-autonomy.vercel.app/';
+
 	let { 
 		title = 'The Illusion of AI Autonomy',
-		url = ''
+		url = CANONICAL_URL
 	}: Props = $props();
 
 	let copied = $state(false);
-	let currentUrl = $state('');
+	let currentUrl = $state(CANONICAL_URL);
 
 	$effect(() => {
 		if (browser) {
-			currentUrl = url || window.location.href;
+			currentUrl = url || CANONICAL_URL;
 		}
 	});
 
